@@ -1,0 +1,84 @@
+##############################################################################
+#
+#              Copyright (C) 2004-2005 Bruce Johnston
+#
+##############################################################################
+#
+#   //osdev/precursor/Source/Kernel/Build/Makefile-kernel.include
+#
+##############################################################################
+#
+#	Originating Author:	BruceJ
+#	Originating Date:	2005/Feb/03
+#
+##############################################################################
+#
+# This is a standard include for all makefiles for the kernel. It re-defines
+# CC, AS, and ASFLAGS to use the GCC cross compiler and the appropriate
+# assembler for the architecture (nasm in the case of x86 builds...). It also
+# adds kernel-specific options to CFLAGS and defines configuration-specific
+# options (i.e. -- <config>_CFLAGS).
+#
+# This file also defines the allowable configurations for kernel builds. The
+# configurations are named according to a particular scheme:
+#
+#	<freeflag>_<arch>_<numproc>
+#
+# where <freeflag> can be one of the following:
+#
+#	checked
+#	free
+#
+# and <arch> can be one of the following:
+#
+#	x86
+#
+# and <numproc> can be one of the following:
+#
+#	uni
+#
+# The list of all possible build configurations is in a variable called kernelconfigs.
+# Individual lists of build configurations by <arch> and <numproc> are also defined.
+#
+# To summarize, this Makefile defines the following variables:
+#
+# $(crossdir):					The directory in which the GCC cross-compiler and binutils live.
+# $(CC):						Set to point to the GCC cross-compiler that targets i586-elf.
+# $(CFLAGS):					Has kernel-specific options appended to it.
+# $(AS):						Set according to the architecture for building .s files
+#								(nasm on x86).
+# $(ASFLAGS):					Flags to instruct the assembler to build ELF object files.
+# $(kernel_configs):			Whitespace-separated list of all kernel build configurations.
+# $(kernel_x86_uni_configs):	Whitespace-separated list of all kernel build configurations that
+#								target x86_uni.
+#
+##############################################################################
+
+
+#############################################################################
+# Override the compiler and assembler.
+#############################################################################
+crossdir	= /usr/cross/bin
+
+# Use our gcc cross compiler with the appropriate settings.
+CC		= $(crossdir)/i586-elf-gcc-3.4.1
+
+# Freestanding because this is the kernel.
+CFLAGS	+= -std=c99 -Wall -Werror -ffreestanding -nostdlib -nostartfiles -nodefaultlibs -nostdinc
+CFLAGS	+= -Wextra -Wcast-align
+#***FIXME: config-specific assembler needed...
+AS		= nasm
+ASFLAGS	= -f elf -w+orphan-labels
+
+
+# Define all allowable build configurations.
+kernel_configs			= checked_x86_uni free_x86_uni
+kernel_x86_uni_configs	= checked_x86_uni free_x86_uni
+
+
+# Tack on extra compiler options for free builds.
+free_x86_uni_CFLAGS = -D NDEBUG -O3
+
+
+# That's it!
+

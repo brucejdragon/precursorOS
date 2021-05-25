@@ -1,0 +1,483 @@
+##############################################################################
+#
+#              Copyright (C) 2004-2005 Bruce Johnston
+#
+##############################################################################
+#
+#   //osdev/precursor/Source/Build/Makefile.include
+#
+##############################################################################
+#
+#	Originating Author:	BruceJ
+#	Originating Date:	2005/Feb/03
+#
+##############################################################################
+#
+# This file contains numerous GNU make macros that can be used to dynamically
+# generate rules and variables for typical makefiles. This allows very simple
+# and maintainable makefiles to be created that nevertheless have many
+# features. Such features include:
+#	- The ability to easily create different build configurations and "projects"
+#	  with different compiler options and even different sets of source files.
+#   - An "all" rule to build everything.
+#	- Rules for various build configurations.
+#	- A "clean" rule to clean everything.
+#	- Clean rules for various build configurations.
+#	- Rules for automatically generating dependency information (.d files) from
+#	  C source files.
+#
+# To use the features of this include file, it suffices to define some variables
+# with a particular naming convention, then use the createStandardPrologue and
+# createStandardLibRules or createStandardExeRules macros. The documentation
+# for these macros describes the variables that must be defined in order to
+# use them.
+#
+##############################################################################
+
+
+# Defines a variable named <proj>_objects, where <proj> is the given project name.
+# Parameters:
+#	$(1):	Project name used as one of the roots of the new variable name.
+#	$(2):	Whitespace-separated list of configuration names used as sub-directory names to
+#			separate intermediate files from source files.
+#	$(3):	Whitespace-separated list of source files. Currently the extensions .c and .s are
+#			recognized.
+define createObjectTargets
+$(1)_objects =
+$(1)_objects += $(foreach config,$(2),$(filter %.o, $(3:%.c=$(config)/%.o)) )
+$(1)_objects += $(foreach config,$(2),$(filter %.o, $(3:%.s=$(config)/%.o)) )
+
+endef
+
+
+# Appends the given list of include directories to CFLAGS.
+# Parameters:
+#	$(1):	Whitespace-separated list of include paths.
+define createDefaultCFLAGS
+CFLAGS += $(1:%=-I%)
+
+endef
+
+
+# Defines a variable named <proj>_depends, where <proj> is the given project name.
+# Parameters:
+#	$(1):	Project name used as one of the roots of the new variable name.
+#	$(2):	Whitespace-separated list of configuration names used as sub-directory names to
+#			separate intermediate files from source files.
+#	$(3):	Whitespace-separated list of source files. Currently the extension .c is
+#			recognized as requiring dependency processing.
+define createDependsTargets
+$(1)_depends =
+$(1)_depends += $(foreach config,$(2),$(filter %.d, $(3:%.c=$(config)/%.d)))
+
+endef
+
+
+# Creates rules for building a static library at the given location based on a given set of object
+# files. It creates a rule for creating the directory to contain the library, and for creating the
+# library itself.
+# Parameters:
+#	$(1):	Parent of the target directory where the library should be created. A sub-directory
+#			will be created in this directory to hold the library. This sub-directory will be named
+#			according to a particular build configuration.
+#	$(2):	Configuration name used as the name of the target directory where the library will be
+#			created.
+#	$(3):	Full name of the library to create. This includes the lib prefix and .a extension.
+#	$(4):	Whitespace-separated list of object files to be included in the static library.
+define createLibRule
+all:	$(2)
+
+$(2):	$(1)/$(2)/$(3)
+
+$(1)/$(2)/$(3):	$(1)/$(2) $(1)/$(2)/$(3)($(4))
+				@echo ----------------------------------------------------------
+				@echo Built $(3), $(2) configuration...
+				@echo ----------------------------------------------------------
+
+$(1)/$(2):
+			mkdir -p $$@
+
+endef
+
+
+# Creates rules for building all configurations of a particular static library.
+# Parameters:
+#	$(1):	Parent of the target directories where the libraries should be created. Sub-directories
+#			will be created in this directory to hold the libraries. These sub-directories will be
+#			named according to the various build configurations.
+#	$(2):	Whitespace-separated list of configuration names used as the names of the target
+#			directories where the library will be created.
+#	$(3):	Full name of the library to create. This includes the lib prefix and .a extension.
+#	$(4):	Whitespace-separated list of all configurations of all object files. This macro will
+#			do the work of separating them into the different configurations.
+define createAllLibRules
+.PHONY:	all $(2)
+
+$(foreach config,$(2),$(call createLibRule,$(1),$(config),$(3),$(filter $(config)/%,$(4))))
+
+endef
+
+
+# Creates rules for building an executable at the given location based on a given set of object
+# files and libraries. It creates a rule for creating the directory to contain the executable, and
+# for creating the executable itself. It also creates a rule with a phony target to build a
+# particular configuration of the executable. Note that you can define configuration-specific
+# compiler flags by creating a variable called <config>_CFLAGS, where <config> is the configuration
+# name.
+# Parameters:
+#	$(1):	Parent of the target directory where the executable should be created. A sub-directory
+#			will be created in this directory to hold the executable. This sub-directory will be
+#			named according to a particular build configuration.
+#	$(2):	Parent of the directory containing libraries to link with the executable. A
+#			sub-directory will exist in this directory that contains the libraries. This
+#			sub-directory will be named according to a particular build configuration.
+#	$(3):	Configuration name used as the name of the target directory where the executable will
+#			be created. This name will also be used for the phony target that builds this
+#			particular configuration of the executable, as well as its dependents.
+#	$(4):	Full name of the executable to create.
+#	$(5):	Whitespace-separated list of object files to be included in the executable.
+#	$(6):	Whitespace-separated list of libraries to be linked to the executable. The library
+#			names are fully-qualified (e.g. -- "libhello.a").
+#	$(7):	Whitespace-separated list of sub-directories to dispatch to via recursive make. It is
+#			assumed that if these sub-directories are up-to-date, then the libraries linked to
+#			the executable are also up-to-date. However, we cannot express this as a dependency
+#			since real targets (i.e. -- libraries) should never depend on phony ones (i.e. --
+#			directory names used for recursive make). It is therefore customary to name the
+#			sub-directories passed for this parameter as the roots of the library names passed as
+#			the previous parameter. For example, libhello.a would be created by a makefile in the
+#			"hello" sub-directory.
+define createExeRule
+.PHONY:			$(3) $(foreach subdir,$(7),$(subdir)$(3) )
+
+all:			$(3)
+
+$(3):			$(foreach subdir,$(7),$(subdir)$(3) ) $(1)/$(3) $(1)/$(3)/$(4)
+
+$(1)/$(3)/$(4):	$(5) $(6:%=$(2)/$(3)/%)
+				$$(CC) $$(CFLAGS) $$($(3)_CFLAGS) $(5) $(6:lib%.a=-l%) -L$(2)/$(3) -o $$@
+				@echo ----------------------------------------------------------
+				@echo Built $(4), $(3) configuration...
+				@echo ----------------------------------------------------------
+
+$(1)/$(3):
+				mkdir -p $$@
+
+$(foreach subdir,$(7),$(subdir)$(3) ):
+				$$(MAKE) $(3) -C $$(@:%$(3)=%)
+
+endef
+
+
+# Creates rules for building all configurations of a particular executable.
+# Parameters:
+#	$(1):	Parent of the target directory where the executable should be created. A sub-directory
+#			will be created in this directory to hold the executable. This sub-directory will be
+#			named according to a particular build configuration.
+#	$(2):	Parent of the directory containing libraries to link with the executable. A
+#			sub-directory will exist in this directory that contains the libraries. This
+#			sub-directory will be named according to a particular build configuration.
+#	$(3):	Whitespace-separated list of configuration names used as the names of the target
+#			directories where the executable will be created, as well as the sub-directories of
+#			libraries to link with the executable.
+#	$(4):	Full name of the executable to create.
+#	$(5):	Whitespace-separated list of all configurations of all object files. This macro will
+#			do the work of separating them into the different configurations.
+#	$(6):	Whitespace-separated list of libraries to be linked to the executable. The library
+#			names are fully-qualified (e.g. -- "libhello.a").
+#	$(7):	Whitespace-separated list of sub-directories to dispatch to via recursive make. It is
+#			assumed that if these sub-directories are up-to-date, then the libraries linked to
+#			the executable are also up-to-date. However, we cannot express this as a dependency
+#			since real targets (i.e. -- libraries) should never depend on phony ones (i.e. --
+#			directory names used for recursive make). It is therefore customary to name the
+#			sub-directories passed for this parameter as the roots of the library names passed as
+#			the previous parameter. For example, libhello.a would be created by a makefile in the
+#			"hello" sub-directory.
+#	$(8):	Whitespace-separated list of additional targets that should be built alongside the
+#			executable.
+define createAllExeRules
+.PHONY:	all
+
+$(foreach config,$(3),$(call createExeRule,$(1),$(2),$(config),$(4),$(filter $(config)/%,$(5)),$(6),$(7)))
+
+all:	$(8)
+
+endef
+
+
+# Creates a rule for creating a makefile containing C/C++ header-file dependencies to include.
+# Parameters:
+#	$(1):	Configuration name used as the name of the directory that will contain the .d file.
+#	$(2):   Name of the source file from which to extract dependency information. Currently the
+#			extension .c is recognized.
+define createDependencyRule
+$(1)/$(2:%.c=%.d):	$(2)
+					@set -e; mkdir -p $(1); rm -f $$@; \
+					$$(CC) $$(CFLAGS) -MM $$< > $$@.$$$$$$$$; \
+					sed 's,$(2:%.c=%.o)[ ]*:,$(1)/$(2:%.c=%.o) $$@ : ,g' < $$@.$$$$$$$$ > $$@; \
+					rm -f $$@.$$$$$$$$
+
+endef
+
+
+# Creates a set of rules to create all dependency makefiles (.d's).
+# Parameters:
+#	$(1):	Whitespace-separated list of configuration names.
+#	$(2):	Whitespace-separated list of source file names. Those ending in a .c extension will
+#			have dependency files created for them; all others will be ignored.
+define createAllDependencyRules
+$(foreach sourceFile,$(filter %.c,$(2)),$(foreach config,$(1),$(call createDependencyRule,$(config),$(sourceFile))))
+
+endef
+
+
+# Creates a rule for compiling a C source file. Note that you can define configuration-specific
+# compiler flags by creating a variable called <config>_CFLAGS, where <config> is the configuration
+# name.
+# Parameters:
+#	$(1):	Configuration name used as the name of the directory that will contain the .o file.
+#	$(2):   Name of the source file from which to extract dependency information. Currently the
+#			extension .c is recognized.
+define createCSourceFileRule
+$(1)/$(2:%.c=%.o):	$(2)
+					mkdir -p $(1)
+					$$(CC) -c $$(CFLAGS) $$($(1)_CFLAGS) $$(CPPFLAGS) $$< -o $$@
+
+endef
+
+
+# Creates a set of rules to compile all C source files.
+# Parameters:
+#	$(1):	Whitespace-separated list of configuration names.
+#	$(2):	Whitespace-separated list of source file names. Those ending in a .c extension will
+#			have rules created for them; all others will be ignored.
+define createAllCSourceFileRules
+$(foreach sourceFile,$(filter %.c,$(2)),$(foreach config,$(1),$(call createCSourceFileRule,$(config),$(sourceFile))))
+
+endef
+
+
+# Creates a rule for compiling an assembler source file. Note that you can define
+# configuration-specific assembler flags by creating a variable called <config>_ASFLAGS, where
+# <config> is the configuration name.
+# Parameters:
+#	$(1):	Configuration name used as the name of the directory that will contain the .o file.
+#	$(2):   Name of the source file from which to extract dependency information. Currently the
+#			extension .s is recognized.
+define createAsmSourceFileRule
+$(1)/$(2:%.s=%.o):	$(2)
+					mkdir -p $(1)
+					$$(AS) $$(ASFLAGS) $$($(1)_ASFLAGS) $$< -o $$@
+
+endef
+
+
+# Creates a set of rules to compile all assembler source files.
+# Parameters:
+#	$(1):	Whitespace-separated list of configuration names.
+#	$(2):	Whitespace-separated list of source file names. Those ending in a .s extension will
+#			have rules created for them; all others will be ignored.
+define createAllAsmSourceFileRules
+$(foreach sourceFile,$(filter %.s,$(2)),$(foreach config,$(1),$(call createAsmSourceFileRule,$(config),$(sourceFile))))
+
+endef
+
+
+# Creates a rule for cleaning a set of object files, dependency files, a target file, and any extra
+# files for a given build configuration. It also creates a rule for recursively cleaning any
+# projects that the current project depends on.
+# Parameters:
+#	$(1):	Parent of the directory containing the target to be deleted. The directory containing
+#			the target will be named according to a particular build configuration.
+#	$(2):	Configuration name used as the name of the directory containing the target to be
+#			deleted.
+#	$(3):	Full file name of the target file (e.g. -- executable or library) to delete.
+#	$(4):	Whitespace-separated list of object files to delete.
+#	$(5):	Whitespace-separated list of dependency files to delete.
+#	$(6):	Whitespace-separated list of sub-directories to clean via recursive make.
+define createCleanRule
+.PHONY:	clean_$(2)
+
+clean_$(2):
+	$(foreach subdir,$(6),$(MAKE) clean_$(2) -C $(subdir);)
+	-rm -f $(4) $(5) $(1)/$(2)/$(3)
+	-rmdir $(2)
+	@echo ----------------------------------------------------------
+	@echo Cleaned $(3), $(2) configuration...
+	@echo ----------------------------------------------------------
+
+endef
+
+
+# Creates a phony target named "clean" that triggers all configuration-specific clean rules.
+# It also creates a rule for recursively cleaning any projects that the current project depends on.
+# Parameters:
+#	$(1):	Parent of the directory containing the target to be deleted. The directory containing
+#			the target will be named according to a particular build configuration.
+#	$(2):	Whitespace-separated list of configuration names used as the names of the directories
+#			containing the targets to be deleted.
+#	$(3):	Full file name of the target file (e.g. -- executable or library) to delete.
+#	$(4):	Whitespace-separated list of all configurations of all object files. This macro will
+#			do the work of separating them into the different configurations.
+#	$(5):	Whitespace-separated list of all configurations of all dependency files. This macro
+#			will do the work of separating them into the different configurations.
+#	$(6):	Whitespace-separated list of additional files to delete.
+#	$(7):	Whitespace-separated list of sub-directories to clean via recursive make.
+define createMasterCleanRule
+.PHONY:	clean
+
+$(foreach config,$(2),$(call createCleanRule,$(1),$(config),$(3),$(filter $(config)/%,$(4)),$(filter $(config)/%,$(5)),$(7)))
+
+clean:
+	$(foreach subdir,$(7),$(MAKE) clean -C $(subdir);)
+	-rm -f $(4) $(5) $(foreach config,$(2),$(1)/$(config)/$(3) ) $(6)
+	-rmdir $(foreach config,$(2),$(config) )
+	@echo ----------------------------------------------------------
+	@echo Cleaned $(3), all configurations...
+	@echo ----------------------------------------------------------
+
+endef
+
+
+# Creates a set of variable definitions that should be at the beginning of all makefiles.
+# Parameters:
+#	$(1):	Project name. This name is used to deduce the names of variables that this macro
+#			relies on. See below for details.
+# Variables:
+#	This macro assumes the existence of the following variables, where <proj> is the project name
+#	parameter described above.
+#	<proj>_configs:		Whitespace-separated list of build configurations (e.g. -- debug release).
+#						These configuration names are used to specify sub-directories to contain
+#						intermediate files.
+#	<proj>_sources:		Whitespace-separated list of source files. Currently only .c and .s files
+#						are recognized.
+#	<proj>_includedirs:	Whitespace-separated list of include paths to be searched by the C/C++
+#						preprocessor.
+#
+#	This macro defines the following variables as follows:
+#	<proj>_objects:		Whitespace-separated list of all configurations of all object files to
+#						build.
+#	<proj>_depends:		Whitespace-separated list of all configurations of all dependency files
+#						(.d files) to create.
+#	CFLAGS:				Set to include a -I option for each of the paths in <proj>_includedirs.
+define createStandardPrologue
+$(call createObjectTargets,$(1),$($(1)_configs),$($(1)_sources))
+$(call createDependsTargets,$(1),$($(1)_configs),$($(1)_sources))
+$(call createDefaultCFLAGS,$($(1)_includedirs))
+
+endef
+
+
+# Creates a set of rules that should be part of all makefiles. The rules created include rules
+# for building source files into object files, for generating dependency files from source files,
+# and for cleaning all types of files. This macro also has an include directive to include all
+# generated dependency files.
+# Parameters:
+#	$(1):	Project name. This name is used to deduce the names of variables that this macro
+#			relies on. See below for details.
+# Variables:
+#	This macro assumes the existence of the following variables, where <proj> is the project name
+#	parameter described above.
+#	<proj>_configs:		Whitespace-separated list of build configurations (e.g. -- debug release).
+#						These configuration names are used to specify sub-directories to contain
+#						intermediate files.
+#	<proj>_sources:		Whitespace-separated list of source files. Currently only .c and .s files
+#						are recognized.
+#	<proj>_targetdir:	Name of the parent directory containing sub-directories that contain the
+#						various configurations of the target library or executable. Used when
+#						creating clean rules.
+#	<proj>_target:		Name of the library or executable. Used when creating clean rules.
+#	<proj>_objects:		Whitespace-separated list of object files for all configurations. Each
+#						object file is prefixed with the relative path to a directory named after
+#						a particular build configuration. This variable is generated for you from
+#						<proj>_sources by the createStandardPrologue macro.
+#	<proj>_depends:		Whitespace-separated list of dependency files for all configurations. This
+#						will be the same as <proj>_objects, except that each file ends in a .d
+#						extension, and only files that orginally had a .c extension in
+#						<proj>_sources are included.
+#	<proj>_extras:		Whitespace-separated list of additional files to be deleted by the clean
+#						rules.
+#	<proj>_subdirs:		Whitespace-separated list of sub-directories containing additional
+#						Makefiles that should be invoked when performing a recursive clean.
+define createStandardRules
+$(call createAllCSourceFileRules,$($(1)_configs),$($(1)_sources))
+$(call createAllAsmSourceFileRules,$($(1)_configs),$($(1)_sources))
+$(call createAllDependencyRules,$($(1)_configs),$($(1)_sources))
+
+ifneq ($(words $($(1)_depends)), 0)
+-include $($(1)_depends)
+endif
+
+$(call createMasterCleanRule,$($(1)_targetdir),$($(1)_configs),$($(1)_target),$($(1)_objects),$($(1)_depends),$($(1)_extras),$($(1)_subdirs))
+
+endef
+
+
+# Creates a set of rules to build a library. Shorthand for calling createAllLibRules and
+# createStandardRules in sequence.
+# Parameters:
+#	$(1):	Project name. This name is used to deduce the names of variables that this macro
+#			relies on. See below for details.
+# Variables:
+#	This macro assumes the existence of the following variables, where <proj> is the project name
+#	parameter described above.
+#	<proj>_configs:		Whitespace-separated list of build configurations (e.g. -- debug release).
+#						These configuration names are used to specify sub-directories to contain
+#						intermediate files.
+#	<proj>_objects:		Whitespace-separated list of all configurations of all object files to
+#						build.
+#	<proj>_depends:		Whitespace-separated list of all configurations of all dependency files
+#						(.d files) to create.
+#	<proj>_sources:		Whitespace-separated list of source files. Currently only .c and .s files
+#						are recognized.
+#	<proj>_targetdir:	Name of the parent directory containing sub-directories that contain the
+#						various configurations of the target library.
+#	<proj>_target:		Name of the library.
+#	<proj>_extras:		Whitespace-separated list of additional files to be deleted by the clean
+#						rules.
+#	<proj>_subdirs:		Whitespace-separated list of sub-directories containing additional
+#						Makefiles that should be invoked when performing a recursive clean.
+#	<proj>_includedirs:	Whitespace-separated list of include paths to be searched by the C/C++
+#						preprocessor.
+define createStandardLibRules
+$(call createAllLibRules,$($(1)_targetdir),$($(1)_configs),$($(1)_target),$($(1)_objects))
+$(call createStandardRules,$(1))
+
+endef
+
+
+# Creates a set of rules to build an executable. Shorthand for calling createAllExeRules, and
+# createStandardRules in sequence.
+# Parameters:
+#	$(1):	Project name. This name is used to deduce the names of variables that this macro
+#			relies on. See below for details.
+# Variables:
+#	This macro assumes the existence of the following variables, where <proj> is the project name
+#	parameter described above.
+#	<proj>_configs:		Whitespace-separated list of build configurations (e.g. -- debug release).
+#						These configuration names are used to specify sub-directories to contain
+#						intermediate files.
+#	<proj>_objects:		Whitespace-separated list of all configurations of all object files to
+#						build.
+#	<proj>_depends:		Whitespace-separated list of all configurations of all dependency files
+#						(.d files) to create.
+#	<proj>_sources:		Whitespace-separated list of source files. Currently only .c and .s files
+#						are recognized.
+#	<proj>_targetdir:	Name of the parent directory containing sub-directories that contain the
+#						various configurations of the target executable.
+#	<proj>_libdir:		Name of the parent directory containing sub-directories that contain the
+#						various configurations of any libraries that the target executable links
+#						with.
+#	<proj>_target:		Name of the executable.
+#	<proj>_extras:		Whitespace-separated list of additional files to be deleted by the clean
+#						rules.
+#	<proj>_subdirs:		Whitespace-separated list of sub-directories containing additional
+#						Makefiles that should be invoked when performing a recursive make.
+#	<proj>_libs:		Whitespace-separated list of libraries to be linked with the executable.
+#	<proj>_includedirs:	Whitespace-separated list of include paths to be searched by the C/C++
+#						preprocessor.
+define createStandardExeRules
+$(call createAllExeRules,$($(1)_targetdir),$($(1)_libdir),$($(1)_configs),$($(1)_target),$($(1)_objects),$($(1)_libs),$($(1)_subdirs),$($(1)_extras))
+$(call createStandardRules,$(1))
+
+endef
+
